@@ -1,9 +1,105 @@
 #include <iostream>
 #include <windows.h>
 #include "map.h"
+#include <iterator>
+
+static void getNeighbours(std::list<int>* nodes,
+	int** navmesh, int queryX, int queryY, int rows, int columns) {
+	int adjX, adjY;
+
+	queryX = queryX % rows;
+	queryY = queryY % columns;
+
+	// up
+	adjX = (queryX - 1) % rows;
+	adjY = queryY % columns;
+	if (adjX < 0) {
+		adjX += rows;
+	}
+	if (adjY < 0) {
+		adjY += columns;
+	}
+	if (navmesh[adjX][adjY] == -2) {
+		navmesh[adjX][adjY] = navmesh[queryX][queryY] + 1;
+		nodes->push_back(adjX);
+		nodes->push_back(adjY);
+	}
+
+	// down
+	adjX = (queryX + 1) % rows;
+	adjY = queryY % columns;
+	if (adjX < 0) {
+		adjX += rows;
+	}
+	if (adjY < 0) {
+		adjY += columns;
+	}
+	if (navmesh[adjX][adjY] == -2) {
+		navmesh[adjX][adjY] = navmesh[queryX][queryY] + 1;
+		nodes->push_back(adjX);
+		nodes->push_back(adjY);
+	}
+
+	// left
+	adjX = queryX % rows;
+	adjY = (queryY - 1) % columns;
+	if (adjX < 0) {
+		adjX += rows;
+	}
+	if (adjY < 0) {
+		adjY += columns;
+	}
+	if (navmesh[adjX][adjY] == -2) {
+		navmesh[adjX][adjY] = navmesh[queryX][queryY] + 1;
+		nodes->push_back(adjX);
+		nodes->push_back(adjY);
+	}
+
+	// right
+	adjX = queryX % rows;
+	adjY = (queryY + 1) % columns;
+	if (adjX < 0) {
+		adjX += rows;
+	}
+	if (adjY < 0) {
+		adjY += columns;
+	}
+	if (navmesh[adjX][adjY] == -2) {
+		navmesh[adjX][adjY] = navmesh[queryX][queryY] + 1;
+		nodes->push_back(adjX);
+		nodes->push_back(adjY);
+	}
+}
+
+static void updateNavmesh(int** navmesh, int playerX, int playerY, int rows, int columns) {
+	for (int i = 0; i < rows; i++) {
+		for (int j = 0; j < columns; j++) {
+			if (navmesh[i][j] != -1) {
+				navmesh[i][j] = -2;
+			}
+			if (i == playerX && j == playerY) {
+				navmesh[i][j] = 0;
+			}
+		}
+	}
+	std::list<int>* nodes = new std::list<int>();
+	int xPos, yPos;
+	nodes->push_back(playerX);
+	nodes->push_back(playerY);
+
+	while (!nodes->empty()) {
+		xPos = nodes->front();
+		nodes->pop_front();
+		yPos = nodes->front();
+		nodes->pop_front();
+		getNeighbours(nodes, navmesh, xPos, yPos, rows, columns);
+	}
+
+	delete nodes;
+}
 
 // https://stackoverflow.com/questions/28196983/is-there-a-faster-way-to-clear-the-console
-void clearscreen()
+static void clearscreen()
 {
 	HANDLE hOut;
 	COORD Position;
@@ -17,16 +113,23 @@ void clearscreen()
 
 Map::Map(int x, int y) : rows(x), columns(y) {
 	map = new char* [rows];
+	navmesh = new int* [rows];
+	timer = 0;
 	for (int i = 0; i < rows; i++) {
 		map[i] = new char[columns];
+		navmesh[i] = new int[columns];
 		for (int j = 0; j < columns; j++) {
 			map[i][j] = ' ';
+			navmesh[i][j] = -2;
 		}
 	}
-	obstacles = new GameObject*[2];
-	obstacles[0] = new GameObject(3, 3, 'X');
-	obstacles[1] = new GameObject(6, 9, 'X');
 	pacman = new Player(0, 0, 'C');
+	ghost = new Ghost(10, 8, 'G');
+}
+
+void Map::placeObstacle(int x, int y) {
+	obstacles.push_back(*(new GameObject(x, y, 'X')));
+	navmesh[x][y] = -1;
 }
 
 void Map::refresh() {
@@ -36,10 +139,12 @@ void Map::refresh() {
 			map[i][j] = ' ';
 		}
 	}
-	for (int i = 0; i < 2; i++) {
-		map[obstacles[i]->posX][obstacles[i]->posY] = obstacles[i]->representation;
+	std::list<GameObject>::iterator it;
+	for (it = obstacles.begin(); it != obstacles.end(); ++it) {
+		map[it->posX][it->posY] = it->representation;
 	}
 	map[pacman->posX][pacman->posY] = pacman->representation;
+	map[ghost->posX][ghost->posY] = ghost->representation;
 }
 
 void Map::setSpeed(int xDelta, int yDelta) {
@@ -48,32 +153,11 @@ void Map::setSpeed(int xDelta, int yDelta) {
 }
 
 void Map::move() {
-	int futurePosX = pacman->posX + pacman->speedX;
-	int futurePosY = pacman->posY + pacman->speedY;
-
-	for (int i = 0; i < 2; i++) {
-		if (obstacles[i]->posX == futurePosX
-			&& obstacles[i]->posY == futurePosY) {
-			pacman->speedX = 0;
-			pacman->speedY = 0;
-			return;
-		}
-	}
-
-	pacman->posX = futurePosX;
-	pacman->posY = futurePosY;
-	if (pacman->posX >= rows) {
-		pacman->posX -= rows;
-	}
-	else if (pacman->posX < 0) {
-		pacman->posX += rows;
-	}
-	if (pacman->posY >= columns) {
-		pacman->posY -= columns;
-	}
-	else if (pacman->posY < 0) {
-		pacman->posY += columns;
-	}
+	pacman->move(obstacles, rows, columns);
+	updateNavmesh(navmesh, pacman->posX, pacman->posY, rows, columns);
+	if (timer % 2 == 0)
+		ghost->move(navmesh, rows, columns);
+	timer++;
 }
 
 void Map::display() {

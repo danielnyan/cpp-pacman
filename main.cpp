@@ -53,6 +53,15 @@ void main() {
     myThread.detach();
 
     Map map(20, 20);
+    for (int i = 0; i < 12; i++) {
+        map.placeObstacle(6, i);
+    }
+    for (int i = 2; i < 20; i++) {
+        map.placeObstacle(12, i);
+    }
+    for (int i = 3; i < 15; i++) {
+        map.placeObstacle(i, 10);
+    }
 	while (1) {
         map.setSpeed(inputBuffer[0], inputBuffer[1]);
         map.move();
